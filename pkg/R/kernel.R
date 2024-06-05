@@ -50,6 +50,7 @@ Kernel <- R6Class("Kernel",
       comm_manager <- CommManager(self,evaluator)
       self$comm_manager <- comm_manager
       self$evaluator <- evaluator
+      self$DAPServer <- DAPServer$new(self)
       kernel$current <- self
       private$save_io_handlers()
       replace_in_package("base","print",evaluator$print)
@@ -64,6 +65,8 @@ Kernel <- R6Class("Kernel",
     evaluator = list(),
     #' @field comm_manager See \code{\link{CommManagerClass}}.
     comm_manager = list(),
+    #' @field DAPServer The current DAP server
+    DAPServer = NULL,
     #' @description
     #' Run the kernel.
     run = function(){
@@ -400,7 +403,17 @@ Kernel <- R6Class("Kernel",
         continue <- FALSE
       }
       return(input)
+    },
+    #' @description
+    #' Send a debug event to the frontend
+    #' @param content A list, content provided by the debug adapter
+    send_debug_event = function(content){
+      private$send_message(type="debug_event",
+                           parent=private$parent$control,
+                           socket="iopub",
+                           content=content)
     }
+    
   ),
 
   private = list(
@@ -442,7 +455,7 @@ Kernel <- R6Class("Kernel",
       if(is.character(r)) {
         log_error(r)
         r_msg <- attr(r,"message")
-        if(length(r_msg)) log_error()
+        if(length(r_msg)) log_error(r_msg)
         tb <- attr(r,"traceback")
         if(length(tb)){
           tb <- unlist(tb)
@@ -472,10 +485,8 @@ Kernel <- R6Class("Kernel",
     last_display = function() private$display_id,
 
     handle_debug_request = function(msg){
-      if(is.null(private$DAPServer))
-        private$DAPServer <- DAPServer$new(self)
       request <- msg$content
-      reply <- try(private$DAPServer$handle(request))
+      reply <- try(self$DAPServer$handle(request))
       if(inherits(reply,"try-error")){
         log_error(reply)
         return(NULL)
@@ -485,7 +496,6 @@ Kernel <- R6Class("Kernel",
                            socket="control",
                            content=reply)
     },
-    DAPServer = NULL,
 
     kernel_info_reply = function(msg){
       rversion <- paste0(version$major,".",version$minor)
@@ -928,7 +938,7 @@ NULL
 #' @export
 add_service <- function(run,init=NULL){
   k <- get_current_kernel()
-  k$add_service(run,init)
+  if(length(k)) k$add_service(run,init)
 }
 
 
@@ -936,7 +946,17 @@ add_service <- function(run,init=NULL){
 #' @export
 remove_service <- function(run){
   k <- get_current_kernel()
-  k$remove_service(run)
+  if(length(k)) k$remove_service(run)
+}
+
+
+#' @title Do a step of the kernel loop
+#' This function should be called in long-running loops to allow the kernel to react to
+#' UI events
+#' @export
+step <- function(){
+  k <- get_current_kernel()
+  if(length(k)) k$poll_and_respond()
 }
 
 

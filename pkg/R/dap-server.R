@@ -1,30 +1,49 @@
 DAPServer <- R6Class("DAPServer",
   public = list(
-      initialize = function(kernel){
+      initialize = function(kernel,evaluator=NULL){
           self$kernel <- kernel
           self$envir <- globalenv()
       },
       handle = function(request){
-          if(request$command != "debugInfo")
+          if(request$command != "debugInfo"){
               log_out(sprintf("DAPServer: got command '%s",request$command))
+              log_out(request$arguments,use.print=TRUE)
+          }
           body <- switch(request$command,
                          debugInfo = self$debugInfo(request),
                          initialize = self$debug_init(request),
                          attach = self$debug_attach(request),
+                         disconnect = self$debug_disconnect(request),
                          inspectVariables = self$inspect_variables(request),
                          variables = self$reply_variables(request),
                          richInspectVariables = self$rich_inspect_variable(request),
+                         dumpCell = self$dumpCell(request),
                          self$empty_reply(request)
                          )
           response <- list(
               type = "response",
+              seq = self$response_seq,
               request_seq = request$seq,
               success = TRUE,
               command = request$command,
               body = body
           )
+          self$response_seq <- self$response_seq + 1L
           return(response)
       },
+      response_seq = 1L,
+      event = function(event,body=NULL){
+          
+          content <- list(
+              seq = self$event_seq,
+              type = "event",
+              event = event,
+              body = body
+          )
+          self$kernel$send_debug_event(content)
+          self$event_seq <- self$event_seq + 1L
+      },
+      event_seq = 1L,
       debugInfo = function(request){
           list(
               isStarted = self$is_started,
@@ -38,12 +57,38 @@ DAPServer <- R6Class("DAPServer",
               exceptionPaths = list()
           )
       },
+      client_info = NULL,
       debug_init = function(request){
+          self$client_info <- request$arguments
+          self$event(event="initialized")
+          self$event(event="process",
+                     body=list(
+                         systemProcessId=Sys.getpid(),
+                         name=Sys.which("R"),
+                         isLocalProcess=TRUE,
+                         startMethod="attach"
+                     ))
+          self$event(event="thread",
+                     body=list(
+                         reason="started",
+                         threadId=1L
+                     ))
           list(
-              supportsSetVariable = TRUE
+              supportsSetVariable = TRUE,
+              supportsConfigurationDoneRequest = TRUE,
+              exceptionBreakpointFilters = list(
+                  filter = "stop",
+                  label = "Runtime error",
+                  default = FALSE,
+                  description = "Break when an error occurs that is not caught by a try() or tryCactch() expression"
+              )
           )
       },
       debug_attach = function(request){
+          self$is_started <- TRUE
+          return(NULL)
+      },
+      debug_disconnect = function(request){
           self$is_started <- TRUE
           return(NULL)
       },
@@ -57,6 +102,15 @@ DAPServer <- R6Class("DAPServer",
               body <- list(variables = unname(variables))
           }
           return(body)
+      },
+      dumpCell = function(request){
+          code = request$arguments$code
+          src_filename <- tempfile("codecell",fileext=".R")
+          writeLines(code,con=src_filename)
+          log_out(sprintf("dumped cell to '%s'",src_filename))
+          list(
+              sourcePath = src_filename
+          )
       },
       rich_inspect_variable = function(request){
           varname <- request$arguments$variableName
@@ -74,7 +128,7 @@ DAPServer <- R6Class("DAPServer",
           ename <- desc$ename
           vref <- 0L
           if(is.atomic(x)) {
-              if(length(x) == 1){
+              if(length(x) <= 1){
                   value <- format(x)
                   type <- class(x)
                   if(length(path) == 1)
@@ -125,6 +179,11 @@ DAPServer <- R6Class("DAPServer",
               if(i == "@"){
                   x <- attributes(x)
                   ename <- sprintf("attributes(%s)",ename)
+              }
+              else if(isS4(x)){
+                  ename <- i
+                  slotname <- gsub("@","",i,fixed=TRUE)
+                  x <- slot(x,slotname)
               }
               else if(is.list(x)){
                   if(is.numeric(i) && i <= length(x) || is.character(i))
@@ -177,7 +236,8 @@ DAPServer <- R6Class("DAPServer",
           n <- min(m, l - i0 + 1L)
           ii <- seq.int(from=i0,
                         length=n)
-          if(self$is.vectorlike(x)) self$show_vector(thing, ii,l)
+          if(isS4(x)) self$show_S4(thing)
+          else if(self$is.vectorlike(x)) self$show_vector(thing, ii,l)
           else if(is.list(x)) self$show_list(thing,ii,path,l)
           else if(is.function(x)) self$show_function(thing)
           else NULL
@@ -214,7 +274,7 @@ DAPServer <- R6Class("DAPServer",
       },
       is.vectorlike = function(x){
           # A more 'inclusive' variant of 'is.vector'
-          is.atomic(x) && !is.array(x) || (isS4(x) && is.vector(x@.Data))
+          is.atomic(x) || (isS4(x) && is.vector(x@.Data))
       },
       show_vector = function(thing,ii,l){
           x <- thing$value
@@ -228,9 +288,11 @@ DAPServer <- R6Class("DAPServer",
               nms[zch] <- paste0("[",ii[zch],"]")
           nms <- format(nms)
           vals <- format(x[ii])
-          type <- class(x) 
-          if(type %in% names(self$types)) 
+          type <- class(x)[1]
+          if(any(type %in% names(self$types))) {
+              type <- intersect(type,names(self$types))
               type <- self$types[type]
+          }
           else
               type <- "str" # To avoid NaN in the frontend
           enms <- paste0(ename,"[",ii,"]")
@@ -273,6 +335,19 @@ DAPServer <- R6Class("DAPServer",
           }
           unname(elements)
       },
+      show_S4 = function(thing){
+          x <- thing$value
+          ename <- thing$ename
+          path <- thing$path
+          nms <- paste0("@",slotNames(x))
+          ii <- seq_along(nms)
+          elements <- list()
+          for(i in ii){
+              n <- nms[i]
+              elements[[i]] <- self$inspect_thing(c(path,list(n)),name=n)
+          }
+          unname(elements)
+      },
       show_function = function(thing,...){
           f <- thing$value
           args <- format(formals(f))
@@ -304,6 +379,7 @@ DAPServer <- R6Class("DAPServer",
       is_started = FALSE,
       kernel = NULL,
       envir = NULL,
+      evaluator = NULL,
       types = c(
           "integer"="int",
           "logical"="bool",
