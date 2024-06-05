@@ -63,11 +63,11 @@ GraphicsDevice <- R6Class("GraphicsDevice",
                 os <- "osx"
             private$dev_filename <- switch(os,
                                            windows="NUL",
-                                           osx=NULL,
+                                           osx="/dev/null",
                                            unix="/dev/null")
             private$dev_name <- switch(os,
                                        windows="png",
-                                       osx="pdf",
+                                       osx="png",
                                        unix="png")
             if(!length(installed_hooks$graphics)){
                 setHook('plot.new',plot_new_hook)
