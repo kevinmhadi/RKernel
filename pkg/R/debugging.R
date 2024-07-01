@@ -539,13 +539,17 @@ Tracer <- R6Class("Tracer",
 
 tracer <- function(...) {
     e <- parent.frame()
-    cl <- deparse(sys.call(sys.parent()))
-    #cat(cl)
+    cl <- deparse1(sys.call(sys.parent()))
+    cat(cl)
+    print("cl")
+    print(cl)
+    print("names(tracers)")
+    print(names(tracers))
     if(!(cl %in% names(tracers))){
         #cat("not found")
         fun <- sys.function(sys.parent())
         fun_orig <- fun@original
-        fun_src <- deparse(fun_orig)
+        fun_src <- deparse1(fun_orig)
         expressions <- as.list(body(fun_orig))
         trc <- Tracer$new(envir=e,
                           label=cl,
@@ -563,8 +567,8 @@ tracer <- function(...) {
 register_export(tracer)
 
 exit_tracer <- function(...) {
-    cl <- deparse(sys.call(sys.parent()))
-    #cat(cl)
+    cl <- deparse1(sys.call(sys.parent()))
+    cat(cl)
     if(cl %in% names(tracers)){
         trc <- tracers[[cl]]
         trc$finalize()
