@@ -540,11 +540,7 @@ Tracer <- R6Class("Tracer",
 tracer <- function(...) {
     e <- parent.frame()
     cl <- deparse1(sys.call(sys.parent()))
-    cat(cl)
-    print("cl")
-    print(cl)
-    print("names(tracers)")
-    print(names(tracers))
+    #cat(cl)
     if(!(cl %in% names(tracers))){
         #cat("not found")
         fun <- sys.function(sys.parent())
@@ -568,7 +564,7 @@ register_export(tracer)
 
 exit_tracer <- function(...) {
     cl <- deparse1(sys.call(sys.parent()))
-    cat(cl)
+    #cat(cl)
     if(cl %in% names(tracers)){
         trc <- tracers[[cl]]
         trc$finalize()
@@ -592,21 +588,38 @@ register_export(exit_tracer)
 #'
 #' @param FUN the function to be traced.
 #' @export
-Trace <- function(FUN){
-     cls <- class(FUN)
-     if("functionWithTrace" %in%cls){
-         warning("Function is already being traced")
-         return(invisible(NULL))
-     }
-         
-     bd <- as.list(body(FUN))
-     trace_at <- seq_along(bd)
-     FUN <- substitute(FUN)
-     tryCatch(trace(FUN,
-                    tracer=tracer,
-                    exit=exit_tracer,
-                    at=trace_at,print=FALSE),
-              error=function(e)stop("Is the function already being traced?"))
+Trace <- function(FUN, where = NULL){
+    if (is.null(where)) {
+        where = parent.frame()
+    }
+    if (is.character(FUN)) {
+        FUN = get(FUN, mode = "function", envir = where)
+    }
+    cls <- class(FUN)
+    if ("functionWithTrace" %in% cls) {
+        warning("Function is already being traced")
+        return(invisible(NULL))
+    }
+    bd <- as.list(body(FUN))
+    trace_at <- seq_along(bd)
+    FUN <- substitute(FUN)
+    FUN = deparse1(FUN)
+    if (grepl(":::", FUN)) {
+        str_list = strsplit(FUN, ":::")[[1]]
+        where = asNamespace(str_list[1])
+        FUN = str_list[2]
+    }
+    tryCatch(
+        trace(
+            FUN, 
+            tracer = tracer, 
+            exit = exit_tracer, 
+            at = trace_at,
+            where = where, 
+            print = FALSE
+        ),
+        error=function(e)stop("Is the function already being traced?")
+    )
 }
 
 
