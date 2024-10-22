@@ -13,7 +13,10 @@ WIRE_DELIM <- charToRaw("<IDS|MSG>")
 
 kernel <- new.env()
 
-fn_kernel_logfile <- file.path(dirname(tempdir()),"RKernel.log")
+# fn_kernel_logfile <- file.path(dirname(tempdir()),"RKernel.log")
+# tmpdir = tempdir()
+# fn_kernel_logfile <- file.path(tmpdir,"RKernel.log")
+
 
 #' The Kernel Class
 #'
@@ -56,6 +59,10 @@ Kernel <- R6Class("Kernel",
       replace_in_package("base","print",evaluator$print)
       replace_in_package("base","cat",evaluator$cat)
       replace_in_package("tools","httpd",evaluator$httpd)
+      tmpdir = tempdir()
+      fn_kernel_logfile <- file.path(tmpdir,"RKernel.log")
+      system(paste("mkdir -p", dirname(fn_kernel_logfile)))
+      system(paste("touch", fn_kernel_logfile))
       private$logfile <- file(fn_kernel_logfile,"a")
       # private$logfile <- stderr()
       # private$logfile <- socketConnection(port=6111)
